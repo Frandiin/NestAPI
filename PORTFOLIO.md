@@ -96,10 +96,18 @@ CLOUDINARY_API_SECRET=your_api_secret
 ## Comandos
 
 ```bash
-# Desenvolvimento
+# Desenvolvimento (local)
 npm run dev              # Iniciar com hot reload
 npm run build            # Compilar
 npm run start:prod       # Produção
+
+# Docker Desenvolvimento (hot reload)
+npm run docker:dev       # Subir com hot reload
+npm run docker:dev:down  # Parar ambiente dev
+
+# Docker Produção
+npm run docker:prod      # Subir em produção
+npm run docker:prod:down # Parar ambiente prod
 
 # Testes
 npm run test:e2e         # Testes E2E (14 testes, 100% mocked)
