@@ -24,7 +24,7 @@ export class AuthService {
       name: registerDto.name,
       email: registerDto.email,
       passwordHash: hashedPassword,
-      role: registerDto.role || Role.USER,
+      role: Role.USER,
     });
 
     const token = this.generateToken(user.id, user.email, user.role);
