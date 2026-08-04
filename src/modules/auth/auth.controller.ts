@@ -1,6 +1,6 @@
 import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
-import { Throttle } from '@nestjs/throttler';
+// import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -21,7 +21,7 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  // @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Autenticar usuário e obter token JWT' })
   @ApiResponse({ status: 200, description: 'Autenticação realizada com sucesso' })
   @ApiResponse({ status: 401, description: 'Credenciais inválidas' })
@@ -31,7 +31,7 @@ export class AuthController {
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  // @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Renovar access token usando refresh token' })
   @ApiResponse({ status: 200, description: 'Tokens renovados com sucesso' })
   @ApiResponse({ status: 401, description: 'Refresh token inválido ou expirado' })

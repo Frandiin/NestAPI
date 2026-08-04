@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+// import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './modules/auth/auth.module';
@@ -34,10 +34,10 @@ import { envValidationSchema } from './config/env.validation';
         synchronize: configService.get<string>('NODE_ENV') !== 'production',
       }),
     }),
-    ThrottlerModule.forRoot([{
-      ttl: 60000,
-      limit: 100,
-    }]),
+    // ThrottlerModule.forRoot([{
+    //   ttl: 60000,
+    //   limit: 100,
+    // }]),
     AuthModule,
     UsersModule,
     FilesModule,
@@ -47,11 +47,11 @@ import { envValidationSchema } from './config/env.validation';
     AiModule,
     ReportsModule,
   ],
-  providers: [
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
-  ],
+  // providers: [
+  //   {
+  //     provide: APP_GUARD,
+  //     useClass: ThrottlerGuard,
+  //   },
+  // ],
 })
 export class AppModule {}
