@@ -9,6 +9,11 @@ export const envValidationSchema = Joi.object({
     'string.min': 'JWT_SECRET must be at least 16 characters',
   }),
   JWT_EXPIRATION: Joi.string().default('1d'),
+  JWT_REFRESH_SECRET: Joi.string().min(16).required().messages({
+    'any.required': 'JWT_REFRESH_SECRET is required',
+    'string.min': 'JWT_REFRESH_SECRET must be at least 16 characters',
+  }),
+  JWT_REFRESH_EXPIRATION_DAYS: Joi.number().default(7),
 
   REDIS_HOST: Joi.string().default('localhost'),
   REDIS_PORT: Joi.number().default(6379),

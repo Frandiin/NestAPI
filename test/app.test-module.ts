@@ -4,9 +4,12 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { AuthService } from '../src/modules/auth/auth.service';
 import { AuthController } from '../src/modules/auth/auth.controller';
 import { JwtStrategy } from '../src/modules/auth/strategies/jwt.strategy';
+import { RefreshTokenStrategy } from '../src/modules/auth/strategies/jwt-refresh.strategy';
+import { RefreshToken } from '../src/modules/auth/entities/refresh-token.entity';
 import { UsersService } from '../src/modules/users/users.service';
 import { UsersController } from '../src/modules/users/users.controller';
 import { FilesService } from '../src/modules/files/files.service';
@@ -114,6 +117,15 @@ const MockJobsServiceProvider = {
   },
 };
 
+const MockRefreshTokenServiceProvider = {
+  provide: getRepositoryToken(RefreshToken),
+  useValue: {
+    findOne: jest.fn().mockResolvedValue(null),
+    save: jest.fn().mockImplementation((data) => Promise.resolve({ id: '1', ...data })),
+    update: jest.fn().mockResolvedValue(undefined),
+  },
+};
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -121,6 +133,8 @@ const MockJobsServiceProvider = {
       load: [() => ({
         JWT_SECRET: 'test-secret-key-for-e2e-tests',
         JWT_EXPIRATION: '1d',
+        JWT_REFRESH_SECRET: 'test-refresh-secret-key-for-e2e',
+        JWT_REFRESH_EXPIRATION_DAYS: 7,
         PORT: 3000,
       })],
     }),
@@ -147,9 +161,11 @@ const MockJobsServiceProvider = {
     },
     AuthService,
     JwtStrategy,
+    RefreshTokenStrategy,
     MockUsersServiceProvider,
     MockFilesServiceProvider,
     MockJobsServiceProvider,
+    MockRefreshTokenServiceProvider,
   ],
 })
 export class TestAppModule {}
