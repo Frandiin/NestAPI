@@ -28,7 +28,7 @@ export class File {
   @Column()
   path: string;
 
-  @ManyToOne(() => User, { eager: false })
+  @ManyToOne(() => User, { eager: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'uploaded_by' })
   uploadedBy: User;
 

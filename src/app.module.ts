@@ -8,6 +8,9 @@ import { UsersModule } from './modules/users/users.module';
 import { FilesModule } from './modules/files/files.module';
 import { JobsModule } from './modules/jobs/jobs.module';
 import { HealthModule } from './modules/health/health.module';
+import { FinanceModule } from './modules/finance/finance.module';
+import { AiModule } from './modules/ai/ai.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import { envValidationSchema } from './config/env.validation';
 
 @Module({
@@ -40,6 +43,9 @@ import { envValidationSchema } from './config/env.validation';
     FilesModule,
     JobsModule,
     HealthModule,
+    FinanceModule,
+    AiModule,
+    ReportsModule,
   ],
   providers: [
     {

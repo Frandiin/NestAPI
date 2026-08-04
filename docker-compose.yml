@@ -1,10 +1,9 @@
-version: '3.8'
-
 services:
   api:
     build:
       context: .
       dockerfile: Dockerfile
+      target: runner
     container_name: nest_api_app
     restart: always
     ports:
@@ -31,6 +30,38 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    networks:
+      - nest_network
+
+  api-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    container_name: nest_api_app_dev
+    restart: always
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - PORT=3000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USERNAME=postgres
+      - DB_PASSWORD=postgres
+      - DB_DATABASE=nest_api
+    volumes:
+      - ./src:/app/src
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./tsconfig.build.json:/app/tsconfig.build.json
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     networks:
       - nest_network
 

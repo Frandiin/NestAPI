@@ -6,10 +6,14 @@ import { JobsService } from './jobs.service';
 import { JobsController } from './jobs.controller';
 import { JobsProcessor, TASKS_QUEUE_NAME } from './jobs.processor';
 import { Job } from './entities/job.entity';
+import { GeneratedReport } from '../finance/entities/generated-report.entity';
+import { Transaction } from '../finance/entities/transaction.entity';
+import { Budget } from '../finance/entities/budget.entity';
+import { AiAnalysis } from '../finance/entities/ai-analysis.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Job]),
+    TypeOrmModule.forFeature([Job, GeneratedReport, Transaction, Budget, AiAnalysis]),
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

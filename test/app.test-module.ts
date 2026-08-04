@@ -16,10 +16,19 @@ import { FilesService } from '../src/modules/files/files.service';
 import { FilesController } from '../src/modules/files/files.controller';
 import { JobsService } from '../src/modules/jobs/jobs.service';
 import { JobsController } from '../src/modules/jobs/jobs.controller';
+import { FinanceService } from '../src/modules/finance/finance.service';
+import { FinanceController } from '../src/modules/finance/finance.controller';
+import { AiService } from '../src/modules/ai/ai.service';
+import { AiController } from '../src/modules/ai/ai.controller';
+import { ReportsService } from '../src/modules/reports/reports.service';
+import { ReportsController } from '../src/modules/reports/reports.controller';
 import { HealthModule } from '../src/modules/health/health.module';
 import { Role } from '../src/common/enums/role.enum';
 import { JobStatus } from '../src/common/enums/job-status.enum';
 import { TASKS_QUEUE_NAME } from '../src/modules/jobs/jobs.processor';
+import { MockFinanceServiceProvider } from './mocks/finance.mock';
+import { MockAiServiceProvider } from './mocks/ai.mock';
+import { MockReportsServiceProvider, MockQueueProvider } from './mocks/reports.mock';
 
 import * as bcrypt from 'bcrypt';
 
@@ -153,7 +162,15 @@ const MockRefreshTokenServiceProvider = {
     }),
     HealthModule,
   ],
-  controllers: [AuthController, UsersController, FilesController, JobsController],
+  controllers: [
+    AuthController,
+    UsersController,
+    FilesController,
+    JobsController,
+    FinanceController,
+    AiController,
+    ReportsController,
+  ],
   providers: [
     {
       provide: APP_GUARD,
@@ -166,6 +183,10 @@ const MockRefreshTokenServiceProvider = {
     MockFilesServiceProvider,
     MockJobsServiceProvider,
     MockRefreshTokenServiceProvider,
+    MockFinanceServiceProvider,
+    MockAiServiceProvider,
+    MockReportsServiceProvider,
+    MockQueueProvider,
   ],
 })
 export class TestAppModule {}

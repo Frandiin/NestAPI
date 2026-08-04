@@ -26,7 +26,7 @@ export class Job {
   @Column({ type: 'jsonb', nullable: true })
   payload: Record<string, any>;
 
-  @ManyToOne(() => User, { eager: false })
+  @ManyToOne(() => User, { eager: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'requested_by' })
   requestedBy: User;
 

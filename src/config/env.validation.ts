@@ -34,4 +34,8 @@ export const envValidationSchema = Joi.object({
   DB_USERNAME: Joi.string().default('postgres'),
   DB_PASSWORD: Joi.string().default('postgres'),
   DB_DATABASE: Joi.string().default('nest_api'),
+
+  GEMINI_API_KEY: Joi.string().required().messages({
+    'any.required': 'GEMINI_API_KEY is required for AI analysis',
+  }),
 });
