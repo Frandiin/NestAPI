@@ -1,0 +1,84 @@
+{
+  "name": "nest-api-best-practices",
+  "version": "1.0.0",
+  "description": "API NestJS com Swagger, JWT, Roles, Upload de Arquivos, Filas e Testes E2E Mockados",
+  "author": "Antigravity",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "build": "nest build",
+    "dev": "nest start",
+    "start:dev": "nest start --watch",
+    "start:debug": "nest start --debug --watch",
+    "start:prod": "node dist/main",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage",
+    "test:e2e": "jest --config ./test/jest-e2e.json --forceExit"
+  },
+  "dependencies": {
+    "@nestjs/bullmq": "^11.0.2",
+    "@nestjs/common": "^11.0.1",
+    "@nestjs/config": "^4.0.0",
+    "@nestjs/core": "^11.0.1",
+    "@nestjs/jwt": "^11.0.0",
+    "@nestjs/passport": "^11.0.5",
+    "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/swagger": "^11.0.3",
+    "@nestjs/terminus": "^11.1.1",
+    "@nestjs/throttler": "^6.5.0",
+    "@nestjs/typeorm": "^11.0.3",
+    "bcrypt": "^5.1.1",
+    "bullmq": "^5.41.6",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "cloudinary": "^2.10.0",
+    "compression": "^1.8.1",
+    "helmet": "^8.3.0",
+    "joi": "^18.2.3",
+    "passport": "^0.7.0",
+    "passport-jwt": "^4.0.1",
+    "pg": "^8.22.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "streamifier": "^0.1.1",
+    "typeorm": "^1.1.0"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@nestjs/schematics": "^11.0.0",
+    "@nestjs/testing": "^11.0.1",
+    "@types/bcrypt": "^5.0.2",
+    "@types/compression": "^1.8.1",
+    "@types/express": "^5.0.0",
+    "@types/helmet": "^0.0.48",
+    "@types/jest": "^29.5.14",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^22.10.7",
+    "@types/passport-jwt": "^4.0.1",
+    "@types/streamifier": "^0.1.2",
+    "@types/supertest": "^6.0.2",
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "collectCoverageFrom": [
+      "**/*.(t|j)s"
+    ],
+    "coverageDirectory": "../coverage",
+    "testEnvironment": "node"
+  }
+}
