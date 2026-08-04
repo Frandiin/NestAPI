@@ -28,7 +28,7 @@ import { envValidationSchema } from './config/env.validation';
         password: configService.get<string>('DB_PASSWORD') || 'postgres',
         database: configService.get<string>('DB_DATABASE') || 'nest_api',
         autoLoadEntities: true,
-        synchronize: true,
+        synchronize: configService.get<string>('NODE_ENV') !== 'production',
       }),
     }),
     ThrottlerModule.forRoot([{
