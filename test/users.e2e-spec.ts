@@ -4,8 +4,6 @@ import * as request from 'supertest';
 import { TestAppModule } from './app.test-module';
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter';
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor';
-import { MockQueueProvider, MockJobsProcessorProvider } from './mocks/queue.mock';
-import { MockCloudinaryProvider } from './mocks/cloudinary.mock';
 
 describe('UsersModule & Roles (E2E - Mocked)', () => {
   let app: INestApplication;
@@ -15,14 +13,7 @@ describe('UsersModule & Roles (E2E - Mocked)', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [TestAppModule],
-    })
-      .overrideProvider(MockQueueProvider.provide)
-      .useValue(MockQueueProvider.useValue)
-      .overrideProvider(MockJobsProcessorProvider.provide)
-      .useValue(MockJobsProcessorProvider.useValue)
-      .overrideProvider(MockCloudinaryProvider.provide)
-      .useValue(MockCloudinaryProvider.useValue)
-      .compile();
+    }).compile();
 
     app = moduleFixture.createNestApplication();
     app.setGlobalPrefix('api/v1');

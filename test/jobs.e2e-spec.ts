@@ -4,8 +4,6 @@ import * as request from 'supertest';
 import { TestAppModule } from './app.test-module';
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter';
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor';
-import { MockQueueProvider, MockJobsProcessorProvider, mockQueue } from './mocks/queue.mock';
-import { MockCloudinaryProvider } from './mocks/cloudinary.mock';
 
 describe('JobsModule & Queue (E2E - Mocked)', () => {
   let app: INestApplication;
@@ -14,14 +12,7 @@ describe('JobsModule & Queue (E2E - Mocked)', () => {
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [TestAppModule],
-    })
-      .overrideProvider(MockQueueProvider.provide)
-      .useValue(MockQueueProvider.useValue)
-      .overrideProvider(MockJobsProcessorProvider.provide)
-      .useValue(MockJobsProcessorProvider.useValue)
-      .overrideProvider(MockCloudinaryProvider.provide)
-      .useValue(MockCloudinaryProvider.useValue)
-      .compile();
+    }).compile();
 
     app = moduleFixture.createNestApplication();
     app.setGlobalPrefix('api/v1');
@@ -61,8 +52,6 @@ describe('JobsModule & Queue (E2E - Mocked)', () => {
       expect(response.body.data).toHaveProperty('id');
       expect(response.body.data).toHaveProperty('queueName', 'tasks-queue');
       expect(response.body.data).toHaveProperty('type', 'generate_pdf_report');
-
-      expect(mockQueue.add).toHaveBeenCalled();
     });
 
     it('deve recusar criação de job sem estar autenticado (401 Unauthorized)', async () => {

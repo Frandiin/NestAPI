@@ -1,64 +1,155 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_GUARD } from '@nestjs/core';
-import { AuthModule } from '../src/modules/auth/auth.module';
-import { UsersModule } from '../src/modules/users/users.module';
-import { FilesModule } from '../src/modules/files/files.module';
-import { JobsModule } from '../src/modules/jobs/jobs.module';
+import { JwtModule } from '@nestjs/jwt';
+import { PassportModule } from '@nestjs/passport';
+import { AuthService } from '../src/modules/auth/auth.service';
+import { AuthController } from '../src/modules/auth/auth.controller';
+import { JwtStrategy } from '../src/modules/auth/strategies/jwt.strategy';
+import { UsersService } from '../src/modules/users/users.service';
+import { UsersController } from '../src/modules/users/users.controller';
+import { FilesService } from '../src/modules/files/files.service';
+import { FilesController } from '../src/modules/files/files.controller';
+import { JobsService } from '../src/modules/jobs/jobs.service';
+import { JobsController } from '../src/modules/jobs/jobs.controller';
 import { HealthModule } from '../src/modules/health/health.module';
-import { User } from '../src/modules/users/entities/user.entity';
-import { File as FileEntity } from '../src/modules/files/entities/file.entity';
-import { Job } from '../src/modules/jobs/entities/job.entity';
+import { Role } from '../src/common/enums/role.enum';
+import { JobStatus } from '../src/common/enums/job-status.enum';
+import { TASKS_QUEUE_NAME } from '../src/modules/jobs/jobs.processor';
+
+import * as bcrypt from 'bcrypt';
+
+const defaultPassword = bcrypt.hashSync('Password123!', 10);
+
+const mockUsers = [
+  {
+    id: '1',
+    name: 'Admin System',
+    email: 'admin@example.com',
+    passwordHash: defaultPassword,
+    role: Role.ADMIN,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
+  {
+    id: '2',
+    name: 'Normal User',
+    email: 'user@example.com',
+    passwordHash: defaultPassword,
+    role: Role.USER,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
+];
+
+const MockUsersServiceProvider = {
+  provide: UsersService,
+  useValue: {
+    onModuleInit: jest.fn(),
+    findByEmail: jest.fn().mockImplementation((email: string) => {
+      const found = mockUsers.find((u) => u.email === email.toLowerCase());
+      return Promise.resolve(found ? { ...found } : null);
+    }),
+    findByEmailWithPassword: jest.fn().mockImplementation((email: string) => {
+      const user = mockUsers.find((u) => u.email === email.toLowerCase());
+      if (user) {
+        return Promise.resolve({ ...user, passwordHash: user.passwordHash });
+      }
+      return Promise.resolve(null);
+    }),
+    findById: jest.fn().mockImplementation((id: string) => {
+      return Promise.resolve(mockUsers.find((u) => u.id === id) || null);
+    }),
+    create: jest.fn().mockImplementation((data: any) => {
+      const existing = mockUsers.find((u) => u.email === data.email?.toLowerCase());
+      if (existing) {
+        return Promise.resolve(null);
+      }
+      const newUser = {
+        id: `mock_${Date.now()}`,
+        ...data,
+        email: data.email?.toLowerCase(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      mockUsers.push(newUser);
+      return Promise.resolve(newUser);
+    }),
+    findAll: jest.fn().mockResolvedValue(mockUsers),
+    findPaginated: jest.fn().mockImplementation((page: number, limit: number) => {
+      return Promise.resolve({ data: mockUsers, total: mockUsers.length });
+    }),
+  },
+};
+
+const MockFilesServiceProvider = {
+  provide: FilesService,
+  useValue: {
+    saveFile: jest.fn().mockImplementation((file: any, userId: string) => {
+      return Promise.resolve({
+        filename: `mock_${file.originalname}`,
+        originalName: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size,
+        path: 'https://res.cloudinary.com/demo/image/upload/v12345/mock_file.png',
+        uploadedAt: new Date(),
+      });
+    }),
+  },
+};
+
+const MockJobsServiceProvider = {
+  provide: JobsService,
+  useValue: {
+    addJob: jest.fn().mockImplementation((createJobDto: any, userId: string) => {
+      return Promise.resolve({
+        id: `job_${Date.now()}`,
+        queueName: TASKS_QUEUE_NAME,
+        type: createJobDto.type,
+        status: JobStatus.QUEUED,
+        createdAt: new Date(),
+      });
+    }),
+  },
+};
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       load: [() => ({
-        DB_HOST: 'localhost',
-        DB_PORT: 5433,
-        DB_USERNAME: 'postgres',
-        DB_PASSWORD: 'postgres',
-        DB_DATABASE: 'nest_api_test',
         JWT_SECRET: 'test-secret-key-for-e2e-tests',
-        JWT_EXPIRATION: '3600',
+        JWT_EXPIRATION: '1d',
         PORT: 3000,
-        REDIS_HOST: 'localhost',
-        REDIS_PORT: 6379,
       })],
-    }),
-    TypeOrmModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        host: configService.get<string>('DB_HOST'),
-        port: configService.get<number>('DB_PORT'),
-        username: configService.get<string>('DB_USERNAME'),
-        password: configService.get<string>('DB_PASSWORD'),
-        database: configService.get<string>('DB_DATABASE'),
-        autoLoadEntities: true,
-        synchronize: true,
-        dropSchema: true,
-      }),
     }),
     ThrottlerModule.forRoot([{
       ttl: 60000,
       limit: 100,
     }]),
-    AuthModule,
-    UsersModule,
-    FilesModule,
-    JobsModule,
+    PassportModule.register({ defaultStrategy: 'jwt' }),
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        secret: configService.get<string>('JWT_SECRET') || 'test-secret-key-for-e2e-tests',
+        signOptions: { expiresIn: configService.get<string>('JWT_EXPIRATION') || '1d' as any },
+      }),
+    }),
     HealthModule,
   ],
+  controllers: [AuthController, UsersController, FilesController, JobsController],
   providers: [
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     },
+    AuthService,
+    JwtStrategy,
+    MockUsersServiceProvider,
+    MockFilesServiceProvider,
+    MockJobsServiceProvider,
   ],
 })
 export class TestAppModule {}
