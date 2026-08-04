@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
-import { AppModule } from '../src/app.module';
+import { TestAppModule } from './app.test-module';
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter';
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor';
 import { MockQueueProvider, MockJobsProcessorProvider, mockQueue } from './mocks/queue.mock';
@@ -13,7 +13,7 @@ describe('JobsModule & Queue (E2E - Mocked)', () => {
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
+      imports: [TestAppModule],
     })
       .overrideProvider(MockQueueProvider.provide)
       .useValue(MockQueueProvider.useValue)
