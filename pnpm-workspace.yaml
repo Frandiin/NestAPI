@@ -1,0 +1,9 @@
+packages:
+  - 'src/**'
+
+allowBuilds:
+  '@google/genai': true
+  '@scarf/scarf': false
+  bcrypt: true
+  msgpackr-extract: false
+  protobufjs: true

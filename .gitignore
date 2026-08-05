@@ -21,3 +21,6 @@ Thumbs.db
 # Coverage / Logs
 coverage/
 *.log
+
+# pnpm
+pnpm-debug.log*
