@@ -1,42 +1,17 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import * as bcrypt from 'bcrypt';
 import { Role } from '../../common/enums/role.enum';
 import { User } from './entities/user.entity';
 
 @Injectable()
-export class UsersService implements OnModuleInit {
+export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
   constructor(
     @InjectRepository(User)
     private readonly usersRepo: Repository<User>,
   ) {}
-
-  async onModuleInit() {
-    const count = await this.usersRepo.count();
-    if (count === 0) {
-      this.logger.log('Seed: criando usuários padrão...');
-      const defaultPassword = await bcrypt.hash('Password123!', 10);
-
-      await this.usersRepo.save([
-        {
-          name: 'Admin System',
-          email: 'admin@example.com',
-          passwordHash: defaultPassword,
-          role: Role.ADMIN,
-        },
-        {
-          name: 'Normal User',
-          email: 'user@example.com',
-          passwordHash: defaultPassword,
-          role: Role.USER,
-        },
-      ]);
-      this.logger.log('Seed: usuários padrão criados com sucesso');
-    }
-  }
 
   async findByEmail(email: string): Promise<User | null> {
     return this.usersRepo.findOne({ where: { email: email.toLowerCase() } });

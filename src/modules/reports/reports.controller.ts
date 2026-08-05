@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Res, StreamableFile, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Res, StreamableFile, UseGuards, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -86,7 +86,21 @@ export class ReportsController {
     @CurrentUser('sub') userId: string,
     @Res() res: Response,
   ) {
-    const report = await this.reportsService.getReportById(id, userId);
+    let report: any = null;
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(id)) {
+      report = await this.reportsService.getReportById(id, userId);
+    } else {
+      const job = await this.tasksQueue.getJob(id);
+      if (job && job.returnvalue?.reportId) {
+        report = await this.reportsService.getReportById(job.returnvalue.reportId, userId);
+      }
+    }
+
+    if (!report) {
+      throw new NotFoundException('Relatorio nao encontrado');
+    }
 
     if (report.fileUrl.startsWith('data:')) {
       const base64Data = report.fileUrl.split(',')[1];

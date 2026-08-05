@@ -285,6 +285,8 @@ export class JobsProcessor extends WorkerHost {
     const { userId, month, year } = job.data;
     const { Between } = require('typeorm');
 
+    this.logger.log(`[ReportMonthly] Buscando transacoes para ${month}/${year}`);
+
     const startDate = new Date(year, month - 1, 1);
     const endDate = new Date(year, month, 0);
 
@@ -294,41 +296,49 @@ export class JobsProcessor extends WorkerHost {
       order: { date: 'ASC' },
     });
 
+    this.logger.log(`[ReportMonthly] ${transactions.length} transacoes encontradas`);
+
     const PDFDocument = require('pdfkit');
     const doc = new PDFDocument({ margin: 50 });
-    const chunks: Buffer[] = [];
-    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
 
-    doc.fontSize(20).text('Relatorio Mensal', { align: 'center' });
-    doc.fontSize(14).text(`${month}/${year}`, { align: 'center' });
-    doc.moveDown(2);
-
-    const income = transactions.filter((t) => t.type === 'income');
-    const expenses = transactions.filter((t) => t.type === 'expense');
-    const totalIncome = income.reduce((sum, t) => sum + Number(t.amount), 0);
-    const totalExpense = expenses.reduce((sum, t) => sum + Number(t.amount), 0);
-
-    doc.fontSize(16).text('Resumo');
-    doc.fontSize(12);
-    doc.text(`Receitas: R$ ${totalIncome.toFixed(2)}`);
-    doc.text(`Despesas: R$ ${totalExpense.toFixed(2)}`);
-    doc.text(`Saldo: R$ ${(totalIncome - totalExpense).toFixed(2)}`);
-    doc.moveDown();
-
-    if (expenses.length > 0) {
-      doc.fontSize(14).text('Despesas');
-      doc.fontSize(10);
-      expenses.forEach((t) => {
-        doc.text(`${t.date.toLocaleDateString('pt-BR')} | ${t.description} | R$ ${Number(t.amount).toFixed(2)}`);
+    const buffer = await new Promise<Buffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+      doc.on('end', () => {
+        this.logger.log(`[ReportMonthly] PDF gerado, ${chunks.length} chunks`);
+        resolve(Buffer.concat(chunks));
       });
-    }
+      doc.on('error', (err: Error) => {
+        this.logger.error(`[ReportMonthly] Erro no PDF: ${err.message}`);
+        reject(err);
+      });
 
-    doc.end();
+      doc.fontSize(20).text('Relatorio Mensal', { align: 'center' });
+      doc.fontSize(14).text(`${month}/${year}`, { align: 'center' });
+      doc.moveDown(2);
 
-    const buffer = await new Promise<Buffer>((resolve) => {
-      const bufs: Buffer[] = [];
-      doc.on('data', (d: Buffer) => bufs.push(d));
-      doc.on('end', () => resolve(Buffer.concat(bufs)));
+      const income = transactions.filter((t) => t.type === 'income');
+      const expenses = transactions.filter((t) => t.type === 'expense');
+      const totalIncome = income.reduce((sum, t) => sum + Number(t.amount), 0);
+      const totalExpense = expenses.reduce((sum, t) => sum + Number(t.amount), 0);
+
+      doc.fontSize(16).text('Resumo');
+      doc.fontSize(12);
+      doc.text(`Receitas: R$ ${totalIncome.toFixed(2)}`);
+      doc.text(`Despesas: R$ ${totalExpense.toFixed(2)}`);
+      doc.text(`Saldo: R$ ${(totalIncome - totalExpense).toFixed(2)}`);
+      doc.moveDown();
+
+      if (expenses.length > 0) {
+        doc.fontSize(14).text('Despesas');
+        doc.fontSize(10);
+        expenses.forEach((t) => {
+          const dateStr = t.date instanceof Date ? t.date.toLocaleDateString('pt-BR') : String(t.date);
+          doc.text(`${dateStr} | ${t.description} | R$ ${Number(t.amount).toFixed(2)}`);
+        });
+      }
+
+      doc.end();
     });
 
     const base64 = `data:application/pdf;base64,${buffer.toString('base64')}`;
@@ -346,21 +356,13 @@ export class JobsProcessor extends WorkerHost {
 
   private async processReportAnnual(job: Job): Promise<any> {
     const { userId, year } = job.data;
-
-    const PDFDocument = require('pdfkit');
-    const doc = new PDFDocument({ margin: 50 });
-    const chunks: Buffer[] = [];
-    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-
-    doc.fontSize(20).text('Relatorio Anual', { align: 'center' });
-    doc.fontSize(14).text(`${year}`, { align: 'center' });
-    doc.moveDown(2);
+    const { Between } = require('typeorm');
 
     let totalIncome = 0;
     let totalExpense = 0;
+    const monthlyLines: string[] = [];
 
     for (let month = 1; month <= 12; month++) {
-      const { Between } = require('typeorm');
       const start = new Date(year, month - 1, 1);
       const end = new Date(year, month, 0);
       const trans = await this.transactionRepo.find({
@@ -372,21 +374,32 @@ export class JobsProcessor extends WorkerHost {
       totalExpense += mExpense;
 
       if (trans.length > 0) {
-        doc.fontSize(10).text(`${month}/${year}: R$${mIncome.toFixed(2)} / R$${mExpense.toFixed(2)}`);
+        monthlyLines.push(`${month}/${year}: R$${mIncome.toFixed(2)} / R$${mExpense.toFixed(2)}`);
       }
     }
 
-    doc.moveDown();
-    doc.fontSize(12).text(`Total Receitas: R$ ${totalIncome.toFixed(2)}`);
-    doc.text(`Total Despesas: R$ ${totalExpense.toFixed(2)}`);
-    doc.text(`Saldo: R$ ${(totalIncome - totalExpense).toFixed(2)}`);
-
-    doc.end();
+    const PDFDocument = require('pdfkit');
+    const doc = new PDFDocument({ margin: 50 });
 
     const buffer = await new Promise<Buffer>((resolve) => {
-      const bufs: Buffer[] = [];
-      doc.on('data', (d: Buffer) => bufs.push(d));
-      doc.on('end', () => resolve(Buffer.concat(bufs)));
+      const chunks: Buffer[] = [];
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+
+      doc.fontSize(20).text('Relatorio Anual', { align: 'center' });
+      doc.fontSize(14).text(`${year}`, { align: 'center' });
+      doc.moveDown(2);
+
+      for (const line of monthlyLines) {
+        doc.fontSize(10).text(line);
+      }
+
+      doc.moveDown();
+      doc.fontSize(12).text(`Total Receitas: R$ ${totalIncome.toFixed(2)}`);
+      doc.text(`Total Despesas: R$ ${totalExpense.toFixed(2)}`);
+      doc.text(`Saldo: R$ ${(totalIncome - totalExpense).toFixed(2)}`);
+
+      doc.end();
     });
 
     const base64 = `data:application/pdf;base64,${buffer.toString('base64')}`;
@@ -416,31 +429,29 @@ export class JobsProcessor extends WorkerHost {
 
     const PDFDocument = require('pdfkit');
     const doc = new PDFDocument({ margin: 50 });
-    const chunks: Buffer[] = [];
-    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-
-    doc.fontSize(20).text('Extrato', { align: 'center' });
-    doc.fontSize(12).text(`${start.toLocaleDateString('pt-BR')} a ${end.toLocaleDateString('pt-BR')}`, { align: 'center' });
-    doc.moveDown();
-
-    doc.fontSize(10);
-    transactions.forEach((t) => {
-      const sign = t.type === 'income' ? '+' : '-';
-      doc.text(`${t.date.toLocaleDateString('pt-BR')} | ${sign} R$ ${Number(t.amount).toFixed(2)} | ${t.description}`);
-    });
-
-    const total = transactions.reduce((sum, t) => {
-      return sum + (t.type === 'income' ? Number(t.amount) : -Number(t.amount));
-    }, 0);
-
-    doc.moveDown();
-    doc.fontSize(12).text(`Saldo: R$ ${total.toFixed(2)}`);
-    doc.end();
 
     const buffer = await new Promise<Buffer>((resolve) => {
-      const bufs: Buffer[] = [];
-      doc.on('data', (d: Buffer) => bufs.push(d));
-      doc.on('end', () => resolve(Buffer.concat(bufs)));
+      const chunks: Buffer[] = [];
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+
+      doc.fontSize(20).text('Extrato', { align: 'center' });
+      doc.fontSize(12).text(`${start.toLocaleDateString('pt-BR')} a ${end.toLocaleDateString('pt-BR')}`, { align: 'center' });
+      doc.moveDown();
+
+      doc.fontSize(10);
+      transactions.forEach((t) => {
+        const sign = t.type === 'income' ? '+' : '-';
+        doc.text(`${t.date.toLocaleDateString('pt-BR')} | ${sign} R$ ${Number(t.amount).toFixed(2)} | ${t.description}`);
+      });
+
+      const total = transactions.reduce((sum, t) => {
+        return sum + (t.type === 'income' ? Number(t.amount) : -Number(t.amount));
+      }, 0);
+
+      doc.moveDown();
+      doc.fontSize(12).text(`Saldo: R$ ${total.toFixed(2)}`);
+      doc.end();
     });
 
     const base64 = `data:application/pdf;base64,${buffer.toString('base64')}`;
@@ -467,24 +478,22 @@ export class JobsProcessor extends WorkerHost {
 
     const PDFDocument = require('pdfkit');
     const doc = new PDFDocument({ margin: 50 });
-    const chunks: Buffer[] = [];
-    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-
-    doc.fontSize(20).text('Comprovante', { align: 'center' });
-    doc.moveDown(2);
-    doc.fontSize(12);
-    doc.text(`Data: ${transaction.date.toLocaleDateString('pt-BR')}`);
-    doc.text(`Descricao: ${transaction.description}`);
-    doc.text(`Categoria: ${transaction.category?.name || 'N/A'}`);
-    doc.text(`Tipo: ${transaction.type === 'income' ? 'Receita' : 'Despesa'}`);
-    doc.text(`Valor: R$ ${Number(transaction.amount).toFixed(2)}`);
-    if (transaction.notes) doc.text(`Obs: ${transaction.notes}`);
-    doc.end();
 
     const buffer = await new Promise<Buffer>((resolve) => {
-      const bufs: Buffer[] = [];
-      doc.on('data', (d: Buffer) => bufs.push(d));
-      doc.on('end', () => resolve(Buffer.concat(bufs)));
+      const chunks: Buffer[] = [];
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+
+      doc.fontSize(20).text('Comprovante', { align: 'center' });
+      doc.moveDown(2);
+      doc.fontSize(12);
+      doc.text(`Data: ${transaction.date.toLocaleDateString('pt-BR')}`);
+      doc.text(`Descricao: ${transaction.description}`);
+      doc.text(`Categoria: ${transaction.category?.name || 'N/A'}`);
+      doc.text(`Tipo: ${transaction.type === 'income' ? 'Receita' : 'Despesa'}`);
+      doc.text(`Valor: R$ ${Number(transaction.amount).toFixed(2)}`);
+      if (transaction.notes) doc.text(`Obs: ${transaction.notes}`);
+      doc.end();
     });
 
     const base64 = `data:application/pdf;base64,${buffer.toString('base64')}`;

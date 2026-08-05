@@ -11,6 +11,7 @@ import { HealthModule } from './modules/health/health.module';
 import { FinanceModule } from './modules/finance/finance.module';
 import { AiModule } from './modules/ai/ai.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { SeedModule } from './modules/seed/seed.module';
 import { envValidationSchema } from './config/env.validation';
 
 @Module({
@@ -46,6 +47,7 @@ import { envValidationSchema } from './config/env.validation';
     FinanceModule,
     AiModule,
     ReportsModule,
+    SeedModule,
   ],
   // providers: [
   //   {
