@@ -3,12 +3,98 @@ import { Logger, Injectable } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as fs from 'fs';
+import * as path from 'path';
 import { GeneratedReport } from '../finance/entities/generated-report.entity';
 import { Transaction } from '../finance/entities/transaction.entity';
 import { Budget } from '../finance/entities/budget.entity';
 import { AiAnalysis } from '../finance/entities/ai-analysis.entity';
 
 export const TASKS_QUEUE_NAME = 'tasks-queue';
+
+function formatBRL(value: number): string {
+  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+const COLORS = {
+  primary: '#1e3a5f',
+  primaryLight: '#e8eef6',
+  income: '#16a34a',
+  incomeBg: '#f0fdf4',
+  expense: '#dc2626',
+  expenseBg: '#fef2f2',
+  neutral: '#64748b',
+  text: '#1e293b',
+  textMuted: '#64748b',
+  border: '#e2e8f0',
+  white: '#ffffff',
+  rowAlt: '#f8fafc',
+};
+
+function drawHeader(doc: any, title: string, subtitle: string) {
+  doc.rect(0, 0, 595.28, 90).fill(COLORS.primary);
+  doc.fontSize(24).font('Helvetica-Bold').fillColor(COLORS.white).text(title, 50, 28, { align: 'center', width: 495.28 });
+  doc.fontSize(12).font('Helvetica').fillColor('#94a3b8').text(subtitle, 50, 58, { align: 'center', width: 495.28 });
+  doc.fillColor(COLORS.text);
+  doc.y = 110;
+}
+
+function drawSectionTitle(doc: any, title: string) {
+  if (doc.y > 700) doc.addPage();
+  doc.moveDown(0.8);
+  doc.fontSize(13).font('Helvetica-Bold').fillColor(COLORS.primary).text(title, 50);
+  doc.moveDown(0.2);
+  doc.moveTo(50, doc.y).lineTo(545.28, doc.y).strokeColor(COLORS.primary).lineWidth(1.5).stroke();
+  doc.lineLineWidth(1);
+  doc.moveDown(0.5);
+}
+
+function drawSummaryBox(doc: any, items: { label: string; value: string; color: string; bgColor: string }[], y?: number) {
+  const startY = y || doc.y;
+  const boxWidth = 155;
+  const gap = 10;
+  const boxX = 50;
+
+  items.forEach((item, i) => {
+    const x = boxX + i * (boxWidth + gap);
+    doc.roundedRect(x, startY, boxWidth, 52, 4).fill(item.bgColor);
+    doc.fontSize(9).font('Helvetica').fillColor(COLORS.textMuted).text(item.label, x + 10, startY + 10, { width: boxWidth - 20 });
+    doc.fontSize(13).font('Helvetica-Bold').fillColor(item.color).text(item.value, x + 10, startY + 26, { width: boxWidth - 20 });
+  });
+
+  doc.y = startY + 62;
+  doc.fillColor(COLORS.text);
+}
+
+function drawTableHeader(doc: any, cols: { label: string; x: number; w: number; align?: string }[]) {
+  const y = doc.y;
+  doc.rect(50, y, 495.28, 20).fill(COLORS.primary);
+  cols.forEach((col) => {
+    doc.fontSize(8).font('Helvetica-Bold').fillColor(COLORS.white)
+      .text(col.label, col.x, y + 6, { width: col.w, align: (col.align as any) || 'left' });
+  });
+  doc.y = y + 22;
+  doc.fillColor(COLORS.text);
+}
+
+function drawTableRow(doc: any, cols: { text: string; x: number; w: number; color?: string; align?: string; bold?: boolean }[], isAlt: boolean) {
+  if (doc.y > 770) doc.addPage();
+  const y = doc.y;
+  if (isAlt) doc.rect(50, y - 1, 495.28, 18).fill(COLORS.rowAlt);
+  cols.forEach((col) => {
+    const sanitized = (col.text || '').replace(/[^\x00-\xFF]/g, '?');
+    doc.fontSize(8).font(col.bold ? 'Helvetica-Bold' : 'Helvetica').fillColor(col.color || COLORS.text)
+      .text(sanitized, col.x, y + 3, { width: col.w, align: (col.align as any) || 'left' });
+  });
+  doc.y = y + 17;
+  doc.fillColor(COLORS.text);
+}
+
+function drawFooter(doc: any) {
+  const pageHeight = doc.page.height;
+  doc.fontSize(7).font('Helvetica').fillColor(COLORS.textMuted)
+    .text(`Gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`, 50, pageHeight - 30, { align: 'center', width: 495.28 });
+}
 
 @Processor(TASKS_QUEUE_NAME)
 @Injectable()
@@ -59,14 +145,17 @@ export class JobsProcessor extends WorkerHost {
   private async processAiMonthlySummary(job: Job): Promise<any> {
     const { userId, month, year } = job.data;
 
-    const { Between } = require('typeorm');
-    const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 0);
+    const startDateStr = `${year}-${String(month).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
-    const transactions = await this.transactionRepo.find({
-      where: { userId, date: Between(startDate, endDate) },
-      relations: { category: true },
-    });
+    const transactions = await this.transactionRepo
+      .createQueryBuilder('t')
+      .leftJoinAndSelect('t.category', 'category')
+      .where('t."userId" = :userId', { userId })
+      .andWhere('t.date >= :startDate', { startDate: startDateStr })
+      .andWhere('t.date <= :endDate', { endDate: endDateStr })
+      .getMany();
 
     const income = transactions.filter((t) => t.type === 'income');
     const expenses = transactions.filter((t) => t.type === 'expense');
@@ -244,15 +333,18 @@ export class JobsProcessor extends WorkerHost {
 
   private async processAiComparison(job: Job): Promise<any> {
     const { userId, period1, period2 } = job.data;
-    const { Between } = require('typeorm');
 
     const getPeriodData = async (m: number, y: number) => {
-      const start = new Date(y, m - 1, 1);
-      const end = new Date(y, m, 0);
-      const trans = await this.transactionRepo.find({
-        where: { userId, date: Between(start, end) },
-        relations: { category: true },
-      });
+      const startDateStr = `${y}-${String(m).padStart(2, '0')}-01`;
+      const lastDay = new Date(y, m, 0).getDate();
+      const endDateStr = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      const trans = await this.transactionRepo
+        .createQueryBuilder('t')
+        .leftJoinAndSelect('t.category', 'category')
+        .where('t."userId" = :userId', { userId })
+        .andWhere('t.date >= :startDate', { startDate: startDateStr })
+        .andWhere('t.date <= :endDate', { endDate: endDateStr })
+        .getMany();
       const income = trans.filter((t) => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
       const expense = trans.filter((t) => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
       return { income, expense, balance: income - expense, count: trans.length };
@@ -283,65 +375,112 @@ export class JobsProcessor extends WorkerHost {
 
   private async processReportMonthly(job: Job): Promise<any> {
     const { userId, month, year } = job.data;
-    const { Between } = require('typeorm');
 
-    this.logger.log(`[ReportMonthly] Buscando transacoes para ${month}/${year}`);
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
-    const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 0);
+    const transactions = await this.transactionRepo
+      .createQueryBuilder('t')
+      .leftJoinAndSelect('t.category', 'category')
+      .where('t."userId" = :userId', { userId })
+      .andWhere("t.date >= :startDate AND t.date <= :endDate", { startDate, endDate })
+      .orderBy('t.date', 'ASC')
+      .getMany();
 
-    const transactions = await this.transactionRepo.find({
-      where: { userId, date: Between(startDate, endDate) },
-      relations: { category: true },
-      order: { date: 'ASC' },
-    });
-
-    this.logger.log(`[ReportMonthly] ${transactions.length} transacoes encontradas`);
+    const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    const income = transactions.filter((t) => t.type === 'income');
+    const expenses = transactions.filter((t) => t.type === 'expense');
+    const totalIncome = income.reduce((sum, t) => sum + Number(t.amount), 0);
+    const totalExpense = expenses.reduce((sum, t) => sum + Number(t.amount), 0);
+    const balance = totalIncome - totalExpense;
 
     const PDFDocument = require('pdfkit');
-    const doc = new PDFDocument({ margin: 50 });
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
 
-    const buffer = await new Promise<Buffer>((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-      doc.on('end', () => {
-        this.logger.log(`[ReportMonthly] PDF gerado, ${chunks.length} chunks`);
-        resolve(Buffer.concat(chunks));
+    const tmpFile = path.join('/tmp', `report_monthly_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
+    const writeStream = fs.createWriteStream(tmpFile);
+    doc.pipe(writeStream);
+
+    drawHeader(doc, 'Relatório Mensal', `${monthNames[month - 1]} ${year}`);
+
+    drawSummaryBox(doc, [
+      { label: 'Receitas', value: formatBRL(totalIncome), color: COLORS.income, bgColor: COLORS.incomeBg },
+      { label: 'Despesas', value: formatBRL(totalExpense), color: COLORS.expense, bgColor: COLORS.expenseBg },
+      { label: 'Saldo', value: formatBRL(balance), color: balance >= 0 ? COLORS.income : COLORS.expense, bgColor: balance >= 0 ? COLORS.incomeBg : COLORS.expenseBg },
+    ]);
+
+    if (expenses.length > 0) {
+      drawSectionTitle(doc, `Despesas (${expenses.length})`);
+      drawTableHeader(doc, [
+        { label: 'DATA', x: 55, w: 70 },
+        { label: 'DESCRIÇÃO', x: 130, w: 250 },
+        { label: 'CATEGORIA', x: 385, w: 80 },
+        { label: 'VALOR', x: 470, w: 70, align: 'right' },
+      ]);
+      expenses.forEach((t, i) => {
+        const dateStr = t.date instanceof Date ? t.date.toLocaleDateString('pt-BR') : String(t.date);
+        drawTableRow(doc, [
+          { text: dateStr, x: 55, w: 70 },
+          { text: t.description, x: 130, w: 250 },
+          { text: t.category?.name || '—', x: 385, w: 80, color: COLORS.textMuted },
+          { text: formatBRL(Number(t.amount)), x: 470, w: 70, color: COLORS.expense, align: 'right', bold: true },
+        ], i % 2 === 0);
       });
-      doc.on('error', (err: Error) => {
-        this.logger.error(`[ReportMonthly] Erro no PDF: ${err.message}`);
-        reject(err);
+      doc.moveDown(0.3);
+      doc.moveTo(385, doc.y).lineTo(545.28, doc.y).strokeColor(COLORS.border).stroke();
+      doc.moveDown(0.3);
+      drawTableRow(doc, [
+        { text: '', x: 55, w: 70 },
+        { text: 'Total Despesas', x: 130, w: 250, bold: true },
+        { text: '', x: 385, w: 80 },
+        { text: formatBRL(totalExpense), x: 470, w: 70, color: COLORS.expense, align: 'right', bold: true },
+      ], false);
+    }
+
+    if (income.length > 0) {
+      drawSectionTitle(doc, `Receitas (${income.length})`);
+      drawTableHeader(doc, [
+        { label: 'DATA', x: 55, w: 70 },
+        { label: 'DESCRIÇÃO', x: 130, w: 250 },
+        { label: 'CATEGORIA', x: 385, w: 80 },
+        { label: 'VALOR', x: 470, w: 70, align: 'right' },
+      ]);
+      income.forEach((t, i) => {
+        const dateStr = t.date instanceof Date ? t.date.toLocaleDateString('pt-BR') : String(t.date);
+        drawTableRow(doc, [
+          { text: dateStr, x: 55, w: 70 },
+          { text: t.description, x: 130, w: 250 },
+          { text: t.category?.name || '—', x: 385, w: 80, color: COLORS.textMuted },
+          { text: formatBRL(Number(t.amount)), x: 470, w: 70, color: COLORS.income, align: 'right', bold: true },
+        ], i % 2 === 0);
       });
+      doc.moveDown(0.3);
+      doc.moveTo(385, doc.y).lineTo(545.28, doc.y).strokeColor(COLORS.border).stroke();
+      doc.moveDown(0.3);
+      drawTableRow(doc, [
+        { text: '', x: 55, w: 70 },
+        { text: 'Total Receitas', x: 130, w: 250, bold: true },
+        { text: '', x: 385, w: 80 },
+        { text: formatBRL(totalIncome), x: 470, w: 70, color: COLORS.income, align: 'right', bold: true },
+      ], false);
+    }
 
-      doc.fontSize(20).text('Relatorio Mensal', { align: 'center' });
-      doc.fontSize(14).text(`${month}/${year}`, { align: 'center' });
-      doc.moveDown(2);
+    drawFooter(doc);
 
-      const income = transactions.filter((t) => t.type === 'income');
-      const expenses = transactions.filter((t) => t.type === 'expense');
-      const totalIncome = income.reduce((sum, t) => sum + Number(t.amount), 0);
-      const totalExpense = expenses.reduce((sum, t) => sum + Number(t.amount), 0);
+    doc.end();
 
-      doc.fontSize(16).text('Resumo');
-      doc.fontSize(12);
-      doc.text(`Receitas: R$ ${totalIncome.toFixed(2)}`);
-      doc.text(`Despesas: R$ ${totalExpense.toFixed(2)}`);
-      doc.text(`Saldo: R$ ${(totalIncome - totalExpense).toFixed(2)}`);
-      doc.moveDown();
-
-      if (expenses.length > 0) {
-        doc.fontSize(14).text('Despesas');
-        doc.fontSize(10);
-        expenses.forEach((t) => {
-          const dateStr = t.date instanceof Date ? t.date.toLocaleDateString('pt-BR') : String(t.date);
-          doc.text(`${dateStr} | ${t.description} | R$ ${Number(t.amount).toFixed(2)}`);
-        });
-      }
-
-      doc.end();
+    await new Promise<void>((resolve, reject) => {
+      writeStream.on('finish', () => resolve());
+      writeStream.on('error', reject);
     });
 
-    const base64 = `data:application/pdf;base64,${buffer.toString('base64')}`;
+    const pdfBuffer = fs.readFileSync(tmpFile);
+    fs.unlinkSync(tmpFile);
+
+    this.logger.log(`[ReportMonthly] PDF gerado, ${pdfBuffer.length} bytes`);
+
+    const base64 = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
     const report = this.reportRepo.create({
       userId,
       type: 'monthly' as any,
@@ -356,53 +495,99 @@ export class JobsProcessor extends WorkerHost {
 
   private async processReportAnnual(job: Job): Promise<any> {
     const { userId, year } = job.data;
-    const { Between } = require('typeorm');
 
     let totalIncome = 0;
     let totalExpense = 0;
-    const monthlyLines: string[] = [];
+    const monthlyData: { month: string; income: number; expense: number; balance: number }[] = [];
+
+    const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
     for (let month = 1; month <= 12; month++) {
-      const start = new Date(year, month - 1, 1);
-      const end = new Date(year, month, 0);
-      const trans = await this.transactionRepo.find({
-        where: { userId, date: Between(start, end) },
-      });
+      const startDateStr = `${year}-${String(month).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, month, 0).getDate();
+      const endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      const trans = await this.transactionRepo
+        .createQueryBuilder('t')
+        .where('t."userId" = :userId', { userId })
+        .andWhere('t.date >= :startDate', { startDate: startDateStr })
+        .andWhere('t.date <= :endDate', { endDate: endDateStr })
+        .getMany();
       const mIncome = trans.filter((t) => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
       const mExpense = trans.filter((t) => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
       totalIncome += mIncome;
       totalExpense += mExpense;
 
       if (trans.length > 0) {
-        monthlyLines.push(`${month}/${year}: R$${mIncome.toFixed(2)} / R$${mExpense.toFixed(2)}`);
+        monthlyData.push({ month: `${monthNames[month - 1]}`, income: mIncome, expense: mExpense, balance: mIncome - mExpense });
       }
     }
 
+    const balance = totalIncome - totalExpense;
+    const avgMonthly = monthlyData.length > 0 ? totalIncome / monthlyData.length : 0;
+
     const PDFDocument = require('pdfkit');
-    const doc = new PDFDocument({ margin: 50 });
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
 
-    const buffer = await new Promise<Buffer>((resolve) => {
-      const chunks: Buffer[] = [];
-      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
+    const tmpFile = path.join('/tmp', `report_annual_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
+    const writeStream = fs.createWriteStream(tmpFile);
+    doc.pipe(writeStream);
 
-      doc.fontSize(20).text('Relatorio Anual', { align: 'center' });
-      doc.fontSize(14).text(`${year}`, { align: 'center' });
-      doc.moveDown(2);
+    drawHeader(doc, 'Relatório Anual', `Exercício ${year}`);
 
-      for (const line of monthlyLines) {
-        doc.fontSize(10).text(line);
-      }
+    drawSummaryBox(doc, [
+      { label: 'Total Receitas', value: formatBRL(totalIncome), color: COLORS.income, bgColor: COLORS.incomeBg },
+      { label: 'Total Despesas', value: formatBRL(totalExpense), color: COLORS.expense, bgColor: COLORS.expenseBg },
+      { label: 'Saldo Anual', value: formatBRL(balance), color: balance >= 0 ? COLORS.income : COLORS.expense, bgColor: balance >= 0 ? COLORS.incomeBg : COLORS.expenseBg },
+    ]);
 
-      doc.moveDown();
-      doc.fontSize(12).text(`Total Receitas: R$ ${totalIncome.toFixed(2)}`);
-      doc.text(`Total Despesas: R$ ${totalExpense.toFixed(2)}`);
-      doc.text(`Saldo: R$ ${(totalIncome - totalExpense).toFixed(2)}`);
+    drawSummaryBox(doc, [
+      { label: 'Média Mensal Receita', value: formatBRL(avgMonthly), color: COLORS.income, bgColor: COLORS.incomeBg },
+      { label: 'Meses com Movimento', value: `${monthlyData.length}`, color: COLORS.primary, bgColor: COLORS.primaryLight },
+      { label: 'Economia Potencial (10%)', value: formatBRL(totalExpense * 0.1), color: COLORS.income, bgColor: COLORS.incomeBg },
+    ]);
 
-      doc.end();
+    if (monthlyData.length > 0) {
+      drawSectionTitle(doc, 'Evolução Mensal');
+      drawTableHeader(doc, [
+        { label: 'MÊS', x: 55, w: 60 },
+        { label: 'RECEITAS', x: 160, w: 120, align: 'right' },
+        { label: 'DESPESAS', x: 290, w: 120, align: 'right' },
+        { label: 'SALDO', x: 420, w: 120, align: 'right' },
+      ]);
+      monthlyData.forEach((m, i) => {
+        drawTableRow(doc, [
+          { text: `${m.month}/${year}`, x: 55, w: 60, bold: true },
+          { text: formatBRL(m.income), x: 160, w: 120, color: COLORS.income, align: 'right' },
+          { text: formatBRL(m.expense), x: 290, w: 120, color: COLORS.expense, align: 'right' },
+          { text: formatBRL(m.balance), x: 420, w: 120, color: m.balance >= 0 ? COLORS.income : COLORS.expense, align: 'right', bold: true },
+        ], i % 2 === 0);
+      });
+      doc.moveDown(0.3);
+      doc.moveTo(160, doc.y).lineTo(540, doc.y).strokeColor(COLORS.border).stroke();
+      doc.moveDown(0.3);
+      drawTableRow(doc, [
+        { text: 'TOTAL', x: 55, w: 60, bold: true },
+        { text: formatBRL(totalIncome), x: 160, w: 120, color: COLORS.income, align: 'right', bold: true },
+        { text: formatBRL(totalExpense), x: 290, w: 120, color: COLORS.expense, align: 'right', bold: true },
+        { text: formatBRL(balance), x: 420, w: 120, color: balance >= 0 ? COLORS.income : COLORS.expense, align: 'right', bold: true },
+      ], false);
+    }
+
+    drawFooter(doc);
+
+    doc.end();
+
+    await new Promise<void>((resolve, reject) => {
+      writeStream.on('finish', () => resolve());
+      writeStream.on('error', reject);
     });
 
-    const base64 = `data:application/pdf;base64,${buffer.toString('base64')}`;
+    const pdfBuffer = fs.readFileSync(tmpFile);
+    fs.unlinkSync(tmpFile);
+
+    this.logger.log(`[ReportAnnual] PDF gerado, ${pdfBuffer.length} bytes`);
+
+    const base64 = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
     const report = this.reportRepo.create({
       userId,
       type: 'annual' as any,
@@ -417,44 +602,90 @@ export class JobsProcessor extends WorkerHost {
 
   private async processReportExtract(job: Job): Promise<any> {
     const { userId, startDate, endDate } = job.data;
-    const { Between } = require('typeorm');
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const transactions = await this.transactionRepo.find({
-      where: { userId, date: Between(start, end) },
-      relations: { category: true },
-      order: { date: 'ASC' },
-    });
+    const startDateStr = startDate.includes('T') ? startDate.split('T')[0] : startDate;
+    const endDateStr = endDate.includes('T') ? endDate.split('T')[0] : endDate;
+    const start = new Date(startDateStr);
+    const end = new Date(endDateStr);
+
+    const transactions = await this.transactionRepo
+      .createQueryBuilder('t')
+      .leftJoinAndSelect('t.category', 'category')
+      .where('t."userId" = :userId', { userId })
+      .andWhere('t.date >= :startDate', { startDate: startDateStr })
+      .andWhere('t.date <= :endDate', { endDate: endDateStr })
+      .orderBy('t.date', 'ASC')
+      .getMany();
+
+    const income = transactions.filter((t) => t.type === 'income');
+    const expenses = transactions.filter((t) => t.type === 'expense');
+    const totalIncome = income.reduce((sum, t) => sum + Number(t.amount), 0);
+    const totalExpense = expenses.reduce((sum, t) => sum + Number(t.amount), 0);
+    const balance = totalIncome - totalExpense;
 
     const PDFDocument = require('pdfkit');
-    const doc = new PDFDocument({ margin: 50 });
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
 
-    const buffer = await new Promise<Buffer>((resolve) => {
-      const chunks: Buffer[] = [];
-      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
+    const tmpFile = path.join('/tmp', `report_extract_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
+    const writeStream = fs.createWriteStream(tmpFile);
+    doc.pipe(writeStream);
 
-      doc.fontSize(20).text('Extrato', { align: 'center' });
-      doc.fontSize(12).text(`${start.toLocaleDateString('pt-BR')} a ${end.toLocaleDateString('pt-BR')}`, { align: 'center' });
-      doc.moveDown();
+    drawHeader(doc, 'Extrato Financeiro', `${start.toLocaleDateString('pt-BR')} a ${end.toLocaleDateString('pt-BR')}`);
 
-      doc.fontSize(10);
-      transactions.forEach((t) => {
-        const sign = t.type === 'income' ? '+' : '-';
-        doc.text(`${t.date.toLocaleDateString('pt-BR')} | ${sign} R$ ${Number(t.amount).toFixed(2)} | ${t.description}`);
+    drawSummaryBox(doc, [
+      { label: 'Receitas', value: formatBRL(totalIncome), color: COLORS.income, bgColor: COLORS.incomeBg },
+      { label: 'Despesas', value: formatBRL(totalExpense), color: COLORS.expense, bgColor: COLORS.expenseBg },
+      { label: 'Saldo', value: formatBRL(balance), color: balance >= 0 ? COLORS.income : COLORS.expense, bgColor: balance >= 0 ? COLORS.incomeBg : COLORS.expenseBg },
+    ]);
+
+    if (transactions.length > 0) {
+      drawSectionTitle(doc, `Lançamentos (${transactions.length})`);
+      drawTableHeader(doc, [
+        { label: 'DATA', x: 55, w: 70 },
+        { label: 'TIPO', x: 130, w: 50 },
+        { label: 'DESCRIÇÃO', x: 185, w: 220 },
+        { label: 'CATEGORIA', x: 410, w: 60 },
+        { label: 'VALOR', x: 475, w: 65, align: 'right' },
+      ]);
+      transactions.forEach((t, i) => {
+        const dateStr = t.date instanceof Date ? t.date.toLocaleDateString('pt-BR') : String(t.date);
+        const sign = t.type === 'income' ? '+' : '−';
+        const color = t.type === 'income' ? COLORS.income : COLORS.expense;
+        drawTableRow(doc, [
+          { text: dateStr, x: 55, w: 70 },
+          { text: sign, x: 130, w: 50, color, bold: true },
+          { text: t.description, x: 185, w: 220 },
+          { text: t.category?.name || '—', x: 410, w: 60, color: COLORS.textMuted },
+          { text: formatBRL(Number(t.amount)), x: 475, w: 65, color, align: 'right', bold: true },
+        ], i % 2 === 0);
       });
+      doc.moveDown(0.3);
+      doc.moveTo(410, doc.y).lineTo(540, doc.y).strokeColor(COLORS.border).stroke();
+      doc.moveDown(0.3);
+      drawTableRow(doc, [
+        { text: '', x: 55, w: 70 },
+        { text: '', x: 130, w: 50 },
+        { text: 'SALDO FINAL', x: 185, w: 220, bold: true },
+        { text: '', x: 410, w: 60 },
+        { text: formatBRL(balance), x: 475, w: 65, color: balance >= 0 ? COLORS.income : COLORS.expense, align: 'right', bold: true },
+      ], false);
+    }
 
-      const total = transactions.reduce((sum, t) => {
-        return sum + (t.type === 'income' ? Number(t.amount) : -Number(t.amount));
-      }, 0);
+    drawFooter(doc);
 
-      doc.moveDown();
-      doc.fontSize(12).text(`Saldo: R$ ${total.toFixed(2)}`);
-      doc.end();
+    doc.end();
+
+    await new Promise<void>((resolve, reject) => {
+      writeStream.on('finish', () => resolve());
+      writeStream.on('error', reject);
     });
 
-    const base64 = `data:application/pdf;base64,${buffer.toString('base64')}`;
+    const pdfBuffer = fs.readFileSync(tmpFile);
+    fs.unlinkSync(tmpFile);
+
+    this.logger.log(`[ReportExtract] PDF gerado, ${pdfBuffer.length} bytes`);
+
+    const base64 = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
     const report = this.reportRepo.create({
       userId,
       type: 'extract' as any,
@@ -476,27 +707,59 @@ export class JobsProcessor extends WorkerHost {
     });
     if (!transaction) throw new Error('Transacao nao encontrada');
 
+    const isIncome = transaction.type === 'income';
     const PDFDocument = require('pdfkit');
-    const doc = new PDFDocument({ margin: 50 });
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
 
-    const buffer = await new Promise<Buffer>((resolve) => {
-      const chunks: Buffer[] = [];
-      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
+    const tmpFile = path.join('/tmp', `report_receipt_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
+    const writeStream = fs.createWriteStream(tmpFile);
+    doc.pipe(writeStream);
 
-      doc.fontSize(20).text('Comprovante', { align: 'center' });
-      doc.moveDown(2);
-      doc.fontSize(12);
-      doc.text(`Data: ${transaction.date.toLocaleDateString('pt-BR')}`);
-      doc.text(`Descricao: ${transaction.description}`);
-      doc.text(`Categoria: ${transaction.category?.name || 'N/A'}`);
-      doc.text(`Tipo: ${transaction.type === 'income' ? 'Receita' : 'Despesa'}`);
-      doc.text(`Valor: R$ ${Number(transaction.amount).toFixed(2)}`);
-      if (transaction.notes) doc.text(`Obs: ${transaction.notes}`);
-      doc.end();
+    drawHeader(doc, 'Comprovante', transaction.date.toLocaleDateString('pt-BR'));
+
+    const fields = [
+      { label: 'Data', value: transaction.date.toLocaleDateString('pt-BR') },
+      { label: 'Descrição', value: transaction.description },
+      { label: 'Categoria', value: transaction.category?.name || 'Sem categoria' },
+      { label: 'Tipo', value: isIncome ? 'Receita' : 'Despesa' },
+      { label: 'Valor', value: formatBRL(Number(transaction.amount)) },
+    ];
+    if (transaction.notes) fields.push({ label: 'Observação', value: transaction.notes });
+
+    fields.forEach((f) => {
+      doc.fontSize(9).font('Helvetica').fillColor(COLORS.textMuted).text(f.label, 50, doc.y, { width: 120 });
+      doc.fontSize(11).font('Helvetica-Bold').fillColor(COLORS.text).text(f.value, 170, doc.y - 12, { width: 375 });
+      doc.moveDown(0.8);
     });
 
-    const base64 = `data:application/pdf;base64,${buffer.toString('base64')}`;
+    doc.moveDown(1);
+    doc.moveTo(50, doc.y).lineTo(545.28, doc.y).strokeColor(COLORS.border).stroke();
+    doc.moveDown(0.5);
+
+    drawSummaryBox(doc, [
+      {
+        label: isIncome ? 'Receita' : 'Despesa',
+        value: formatBRL(Number(transaction.amount)),
+        color: isIncome ? COLORS.income : COLORS.expense,
+        bgColor: isIncome ? COLORS.incomeBg : COLORS.expenseBg,
+      },
+    ]);
+
+    drawFooter(doc);
+
+    doc.end();
+
+    await new Promise<void>((resolve, reject) => {
+      writeStream.on('finish', () => resolve());
+      writeStream.on('error', reject);
+    });
+
+    const pdfBuffer = fs.readFileSync(tmpFile);
+    fs.unlinkSync(tmpFile);
+
+    this.logger.log(`[ReportReceipt] PDF gerado, ${pdfBuffer.length} bytes`);
+
+    const base64 = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
     const report = this.reportRepo.create({
       userId,
       type: 'receipt' as any,

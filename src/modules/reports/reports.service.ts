@@ -1,13 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository } from 'typeorm';
 import * as PDFDocument from 'pdfkit';
 import { GeneratedReport } from '../finance/entities/generated-report.entity';
 import { Transaction } from '../finance/entities/transaction.entity';
 import { Budget } from '../finance/entities/budget.entity';
 import { ReportType, TransactionType } from '../../common/enums/finance.enums';
-import * as fs from 'fs';
-import * as path from 'path';
 
 @Injectable()
 export class ReportsService {
@@ -21,6 +19,12 @@ export class ReportsService {
     @InjectRepository(Budget)
     private readonly budgetRepo: Repository<Budget>,
   ) {}
+
+  private formatDateBR(date: any): string {
+    if (!date) return '';
+    const d = typeof date === 'string' ? new Date(date + 'T00:00:00') : date;
+    return d.toLocaleDateString('pt-BR');
+  }
 
   async generateMonthlyReport(userId: string, month: number, year: number): Promise<Buffer> {
     const transactions = await this.getTransactions(userId, month, year);
@@ -56,7 +60,7 @@ export class ReportsService {
       doc.moveDown(0.5);
       doc.fontSize(10);
       income.forEach((t) => {
-        doc.text(`${t.date.toLocaleDateString('pt-BR')} | ${t.description} | ${t.category?.name || 'N/A'} | R$ ${Number(t.amount).toFixed(2)}`);
+        doc.text(`${this.formatDateBR(t.date)} | ${t.description} | ${t.category?.name || 'N/A'} | R$ ${Number(t.amount).toFixed(2)}`);
       });
       doc.moveDown();
     }
@@ -67,7 +71,7 @@ export class ReportsService {
       doc.moveDown(0.5);
       doc.fontSize(10);
       expenses.forEach((t) => {
-        doc.text(`${t.date.toLocaleDateString('pt-BR')} | ${t.description} | ${t.category?.name || 'N/A'} | R$ ${Number(t.amount).toFixed(2)}`);
+        doc.text(`${this.formatDateBR(t.date)} | ${t.description} | ${t.category?.name || 'N/A'} | R$ ${Number(t.amount).toFixed(2)}`);
       });
       doc.moveDown();
     }
@@ -135,27 +139,31 @@ export class ReportsService {
   }
 
   async generateExtract(userId: string, startDate: string, endDate: string): Promise<Buffer> {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const startDateStr = startDate.includes('T') ? startDate.split('T')[0] : startDate;
+    const endDateStr = endDate.includes('T') ? endDate.split('T')[0] : endDate;
 
-    const transactions = await this.transactionRepo.find({
-      where: { userId, date: Between(start, end) },
-      relations: { category: true },
-      order: { date: 'ASC' },
-    });
+    const transactions = await this.transactionRepo
+      .createQueryBuilder('t')
+      .leftJoinAndSelect('t.category', 'category')
+      .where('t."userId" = :userId', { userId })
+      .andWhere('t.date >= :startDate AND t.date <= :endDate', { startDate: startDateStr, endDate: endDateStr })
+      .orderBy('t.date', 'ASC')
+      .getMany();
 
     const doc = new PDFDocument({ margin: 50 });
     const chunks: Buffer[] = [];
     doc.on('data', (chunk) => chunks.push(chunk));
 
     doc.fontSize(20).text('Extrato de Transacoes', { align: 'center' });
-    doc.fontSize(12).text(`${start.toLocaleDateString('pt-BR')} a ${end.toLocaleDateString('pt-BR')}`, { align: 'center' });
+    const startDisplay = new Date(startDateStr + 'T00:00:00');
+    const endDisplay = new Date(endDateStr + 'T00:00:00');
+    doc.fontSize(12).text(`${startDisplay.toLocaleDateString('pt-BR')} a ${endDisplay.toLocaleDateString('pt-BR')}`, { align: 'center' });
     doc.moveDown(2);
 
     doc.fontSize(10);
     transactions.forEach((t) => {
       const type = t.type === TransactionType.INCOME ? '+' : '-';
-      doc.text(`${t.date.toLocaleDateString('pt-BR')} | ${type} R$ ${Number(t.amount).toFixed(2)} | ${t.description} | ${t.category?.name || 'N/A'}`);
+      doc.text(`${this.formatDateBR(t.date)} | ${type} R$ ${Number(t.amount).toFixed(2)} | ${t.description} | ${t.category?.name || 'N/A'}`);
     });
 
     const total = transactions.reduce((sum, t) => {
@@ -187,7 +195,7 @@ export class ReportsService {
     doc.moveDown(2);
 
     doc.fontSize(12);
-    doc.text(`Data: ${transaction.date.toLocaleDateString('pt-BR')}`);
+    doc.text(`Data: ${this.formatDateBR(transaction.date)}`);
     doc.text(`Descricao: ${transaction.description}`);
     doc.text(`Categoria: ${transaction.category?.name || 'N/A'}`);
     doc.text(`Tipo: ${transaction.type === TransactionType.INCOME ? 'Receita' : 'Despesa'}`);
@@ -219,13 +227,16 @@ export class ReportsService {
   }
 
   private async getTransactions(userId: string, month: number, year: number): Promise<Transaction[]> {
-    const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 0);
+    const startDateStr = `${year}-${String(month).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const endDateStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
-    return this.transactionRepo.find({
-      where: { userId, date: Between(startDate, endDate) },
-      relations: { category: true },
-      order: { date: 'ASC' },
-    });
+    return this.transactionRepo
+      .createQueryBuilder('t')
+      .leftJoinAndSelect('t.category', 'category')
+      .where('t."userId" = :userId', { userId })
+      .andWhere('t.date >= :startDate AND t.date <= :endDate', { startDate: startDateStr, endDate: endDateStr })
+      .orderBy('t.date', 'ASC')
+      .getMany();
   }
 }
